@@ -1,15 +1,16 @@
 // ==UserScript==
-// @name         Threads Custom Buttons 2
+// @name         Threads Custom Buttons 3
 // @namespace    http://tampermonkey.net/
-// @version      10.0
+// @version      14.0
 // @description  Add custom buttons to Threads posts
-// @author       
+// @author       You
 // @match        https://threads.net/*
 // @match        https://www.threads.net/*
 // @match        https://threads.com/*
 // @match        https://www.threads.com/*
 // @grant        none
 // ==/UserScript==
+
 
 (function() {
     'use strict';
@@ -34,25 +35,28 @@
             text-align: left;
             transition: background-color 0.2s ease;
         }
-        
+
         .custom-threads-button:hover {
             background-color: rgba(255, 255, 255, 0.1);
         }
-        
+
         .custom-button-icon {
-            width: 20px;
-            height: 20px;
-            margin-right: 12px;
-            fill: currentColor;
+            width: 16px;
+            height: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            line-height: 1;
         }
-        
+
         .custom-buttons-container {
             display: flex;
             gap: 8px;
             margin-top: 8px;
             margin-left: 48px; /* Align with content column */
         }
-        
+
         .custom-button-compact {
             padding: 6px;
             border-radius: 50%;
@@ -67,28 +71,28 @@
             transition: all 0.2s ease;
             color: rgb(168, 178, 191);
         }
-        
+
         .custom-button-compact:hover {
             background: rgba(255, 255, 255, 0.1);
             color: rgb(243, 245, 247);
             transform: scale(1.05);
         }
-        
+
         .custom-button-compact.mute-btn:hover {
             background: rgba(255, 193, 7, 0.1);
             color: rgb(255, 193, 7);
         }
-        
+
         .custom-button-compact.block-btn:hover {
             background: rgba(220, 53, 69, 0.1);
             color: rgb(220, 53, 69);
         }
-        
+
         .custom-button-compact.not-interested-btn:hover {
             background: rgba(108, 117, 125, 0.1);
             color: rgb(108, 117, 125);
         }
-        
+
         .custom-button-processing {
             opacity: 0.5;
             pointer-events: none;
@@ -105,11 +109,11 @@
     // Find existing more menu button for a post container - IMPROVED VERSION
     function findMoreMenuButton(postContainer) {
         console.log('Looking for more menu button in:', postContainer);
-        
+
         // Method 1: Look for SVG with "More" aria-label
         const moreSvgs = postContainer.querySelectorAll('svg[aria-label="More"]');
         console.log('Found SVGs with More aria-label:', moreSvgs.length);
-        
+
         for (let svg of moreSvgs) {
             const button = svg.closest('[role="button"]') || svg.closest('button');
             if (button) {
@@ -117,11 +121,11 @@
                 return button;
             }
         }
-        
+
         // Method 2: Look for three-dot pattern in SVG
         const allSvgs = postContainer.querySelectorAll('svg');
         console.log('Total SVGs found:', allSvgs.length);
-        
+
         for (let svg of allSvgs) {
             const circles = svg.querySelectorAll('circle');
             if (circles.length === 3) {
@@ -135,7 +139,7 @@
                         break;
                     }
                 }
-                
+
                 if (isThreeDot) {
                     const button = svg.closest('[role="button"]') || svg.closest('button');
                     if (button) {
@@ -145,11 +149,11 @@
                 }
             }
         }
-        
+
         // Method 3: Look for button with specific viewBox that contains three circles
         const buttonElements = postContainer.querySelectorAll('[role="button"], button');
         console.log('Total buttons found:', buttonElements.length);
-        
+
         for (let button of buttonElements) {
             const svg = button.querySelector('svg[viewBox="0 0 24 24"]');
             if (svg) {
@@ -160,7 +164,7 @@
                 }
             }
         }
-        
+
         console.log('More menu button not found');
         return null;
     }
@@ -175,39 +179,28 @@
         return null;
     }
 
-    // Create custom button icons (SVG)
+    // Create custom button icons using emojis
     function createButtonIcon(type) {
-        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-        svg.setAttribute('width', '16');
-        svg.setAttribute('height', '16');
-        svg.setAttribute('viewBox', '0 0 20 20');
-        svg.setAttribute('fill', 'currentColor');
-        svg.setAttribute('class', 'custom-button-icon');
-        
-        let pathData;
+        const span = document.createElement('span');
+        span.style.fontSize = '16px';
+        span.style.lineHeight = '1';
+        span.setAttribute('class', 'custom-button-icon');
+
         switch (type) {
             case 'mute':
-                pathData = 'M10 4.5c0-2.07 1.68-3.75 3.75-3.75s3.75 1.68 3.75 3.75-1.68 3.75-3.75 3.75S10 6.57 10 4.5zm0 7.5c0 .41.34.75.75.75h2c.69 0 .98 0 1.21.03 1.68.22 3 1.55 3.22 3.22.03.23.03.52.03 1.21 0 .25 0 .31 0 .35-.04.34-.31.61-.65.65-.04 0-.1 0-.35 0h-3.46c-.41 0-.75.34-.75.75s.34.75.75.75h3.46c1.81 0 3.25-1.44 3.25-3.25v-.46c0-.64 0-1.03-.05-1.37-.29-2.36-2.11-4.18-4.47-4.47-.34-.05-.73-.05-1.37-.05H10.75c-.41 0-.75.34-.75.75z';
+                span.textContent = '🙊';
                 break;
             case 'block':
-                pathData = 'M10 2C6.5 2 3.75 4.75 3.75 8.25s2.75 6.25 6.25 6.25 6.25-2.75 6.25-6.25S13.5 2 10 2zm0 1.5c2.62 0 4.75 2.13 4.75 4.75 0 1.04-.34 2-.91 2.78L6.47 8.66C6.66 5.79 8.04 3.5 10 3.5zm0 9.5c-1.04 0-2-.34-2.78-.91l7.37-7.37c.57.78.91 1.74.91 2.78 0 2.62-2.13 4.75-4.75 4.75z';
+                span.textContent = '🚫';
                 break;
             case 'not-interested':
-                pathData = 'M2.5 2.5L17.5 17.5M6 6c-1.5.75-2.5 2.25-2.5 4s1 3.25 2.5 4c1.5.75 3 1 4 1s2.5-.25 4-1c1.5-.75 2.5-2.25 2.5-4 0-.5-.1-1-.3-1.4M8.5 8.5c-.3.4-.5.9-.5 1.5 0 1.38 1.12 2.5 2.5 2.5.6 0 1.1-.2 1.5-.5';
+                span.textContent = '😒';
                 break;
             default:
-                pathData = 'M10 3c3.87 0 7 3.13 7 7s-3.13 7-7 7-7-3.13-7-7 3.13-7 7-7z';
+                span.textContent = '❓';
         }
-        
-        const pathElement = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        pathElement.setAttribute('d', pathData);
-        pathElement.setAttribute('stroke', 'currentColor');
-        pathElement.setAttribute('stroke-width', '1.5');
-        pathElement.setAttribute('stroke-linecap', 'round');
-        pathElement.setAttribute('fill', 'none');
-        svg.appendChild(pathElement);
-        
-        return svg;
+
+        return span;
     }
 
     // Create custom buttons
@@ -229,7 +222,7 @@
             handleMuteUser(postContainer, postId, muteButton);
         };
 
-        // Block button  
+        // Block button
         const blockButton = document.createElement('button');
         blockButton.className = 'custom-button-compact block-btn';
         blockButton.title = `Block ${username || 'this user'}`;
@@ -280,7 +273,7 @@
 
             // Check immediately
             checkForMenuItem();
-            
+
             // Also check after short delays to account for animation
             setTimeout(checkForMenuItem, 200);
             setTimeout(checkForMenuItem, 500);
@@ -300,7 +293,7 @@
 
             console.log('Clicking more menu button');
             moreButton.click();
-            
+
             // Wait for menu animation
             await new Promise(resolve => setTimeout(resolve, 800));
 
@@ -310,11 +303,11 @@
                 console.log('Clicking mute button');
                 muteButton.click();
                 console.log('Successfully muted user');
-                
+
                 // Hide the post with a fade effect
                 postContainer.style.transition = 'opacity 0.5s ease';
                 postContainer.style.opacity = '0.5';
-                
+
                 // Add a visual indicator
                 const indicator = document.createElement('div');
                 indicator.textContent = 'User muted';
@@ -344,7 +337,7 @@
 
             console.log('Clicking more menu button');
             moreButton.click();
-            
+
             // Wait for menu animation
             await new Promise(resolve => setTimeout(resolve, 800));
 
@@ -353,17 +346,17 @@
             if (blockButton) {
                 console.log('Clicking block button');
                 blockButton.click();
-                
+
                 // Wait for dialog
                 await new Promise(resolve => setTimeout(resolve, 800));
-                
+
                 // Find confirmation button in dialog
                 const confirmButton = await findMenuItemByText('Block');
                 if (confirmButton) {
                     console.log('Clicking confirm block button');
                     confirmButton.click();
                     console.log('Successfully blocked user');
-                    
+
                     // Hide the post completely
                     postContainer.style.transition = 'all 0.5s ease';
                     postContainer.style.opacity = '0';
@@ -396,7 +389,7 @@
 
             console.log('Clicking more menu button');
             moreButton.click();
-            
+
             // Wait for menu animation
             await new Promise(resolve => setTimeout(resolve, 800));
 
@@ -406,7 +399,7 @@
                 console.log('Clicking not interested button');
                 notInterestedButton.click();
                 console.log('Successfully marked as not interested');
-                
+
                 // Hide the post with a slide effect
                 postContainer.style.transition = 'all 0.5s ease';
                 postContainer.style.opacity = '0';
@@ -414,7 +407,7 @@
                 setTimeout(() => {
                     postContainer.style.display = 'none';
                 }, 500);
-                
+
                 // Add a visual indicator
                 const indicator = document.createElement('div');
                 indicator.textContent = 'Marked as not interested';
@@ -437,15 +430,15 @@
         if (postContainer.querySelector('.custom-buttons-container')) {
             return; // Already has buttons, skip
         }
-        
+
         // Generate a more reliable unique ID for this post
         let postId = '';
-        
+
         // Method 1: Try to get post URL
         const postLink = postContainer.querySelector('a[href*="/post/"]');
         if (postLink) {
             postId = postLink.getAttribute('href').split('/').pop();
-        } 
+        }
         // Method 2: Try username + timestamp
         else {
             const usernameLink = postContainer.querySelector('a[href^="/@"]');
@@ -456,7 +449,7 @@
                 postId = `${username}-${timestamp}`;
             }
         }
-        
+
         // Method 3: Use container-based ID (fallback)
         if (!postId) {
             // Create ID based on post content hash
@@ -464,7 +457,7 @@
             const username = extractUsername(postContainer) || 'unknown';
             postId = `${username}-${textContent.substring(0, 50).replace(/\s+/g, '-')}`;
         }
-        
+
         // Skip if already processed
         if (processedPosts.has(postId)) {
             return;
@@ -481,7 +474,7 @@
 
         // Create and insert custom buttons
         const customButtons = createCustomButtons(postContainer, postId);
-        
+
         // Insert into the post grid structure
         // Look for the last content row to append after
         const gridContainer = postContainer.querySelector('[style*="grid"]') || postContainer;
@@ -494,13 +487,13 @@
     function processAllPosts() {
         // Wait for initial content load
         const pressableContainers = document.querySelectorAll('[data-pressable-container="true"]');
-        
+
         pressableContainers.forEach(container => {
             // Find the parent post container
-            let postContainer = container.closest('[style*="grid"]') || 
-                               container.closest('article') || 
+            let postContainer = container.closest('[style*="grid"]') ||
+                               container.closest('article') ||
                                container;
-            
+
             if (postContainer) {
                 processPost(postContainer);
             }
@@ -510,10 +503,10 @@
     // Set up mutation observer for dynamic content
     function setupMutationObserver() {
         let processingTimeout;
-        
+
         const observer = new MutationObserver((mutations) => {
             let shouldProcess = false;
-            
+
             mutations.forEach((mutation) => {
                 if (mutation.type === 'childList') {
                     mutation.addedNodes.forEach((node) => {
@@ -530,7 +523,7 @@
                     });
                 }
             });
-            
+
             if (shouldProcess) {
                 // Clear any existing timeout
                 clearTimeout(processingTimeout);
@@ -546,7 +539,7 @@
             childList: true,
             subtree: true
         });
-        
+
         console.log('Mutation observer set up');
     }
 
@@ -554,7 +547,7 @@
     function initialize() {
         // Add custom CSS
         addCustomCSS();
-        
+
         // Wait for initial page load
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', () => {
