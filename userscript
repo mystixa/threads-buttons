@@ -1,0 +1,577 @@
+// ==UserScript==
+// @name         Threads Custom Buttons 2
+// @namespace    http://tampermonkey.net/
+// @version      10.0
+// @description  Add custom buttons to Threads posts
+// @author       
+// @match        https://threads.net/*
+// @match        https://www.threads.net/*
+// @match        https://threads.com/*
+// @match        https://www.threads.com/*
+// @grant        none
+// ==/UserScript==
+
+(function() {
+    'use strict';
+
+    // Track processed posts to avoid duplicates
+    const processedPosts = new Set();
+
+    // CSS for custom buttons
+    const customCSS = `
+        .custom-threads-button {
+            display: flex;
+            align-items: center;
+            justify-content: flex-start;
+            width: 100%;
+            padding: 12px 16px;
+            border: none;
+            background: none;
+            cursor: pointer;
+            font-size: 15px;
+            line-height: 20px;
+            color: rgb(243, 245, 247);
+            text-align: left;
+            transition: background-color 0.2s ease;
+        }
+        
+        .custom-threads-button:hover {
+            background-color: rgba(255, 255, 255, 0.1);
+        }
+        
+        .custom-button-icon {
+            width: 20px;
+            height: 20px;
+            margin-right: 12px;
+            fill: currentColor;
+        }
+        
+        .custom-buttons-container {
+            display: flex;
+            gap: 8px;
+            margin-top: 8px;
+            margin-left: 48px; /* Align with content column */
+        }
+        
+        .custom-button-compact {
+            padding: 6px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 32px;
+            height: 32px;
+            transition: all 0.2s ease;
+            color: rgb(168, 178, 191);
+        }
+        
+        .custom-button-compact:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: rgb(243, 245, 247);
+            transform: scale(1.05);
+        }
+        
+        .custom-button-compact.mute-btn:hover {
+            background: rgba(255, 193, 7, 0.1);
+            color: rgb(255, 193, 7);
+        }
+        
+        .custom-button-compact.block-btn:hover {
+            background: rgba(220, 53, 69, 0.1);
+            color: rgb(220, 53, 69);
+        }
+        
+        .custom-button-compact.not-interested-btn:hover {
+            background: rgba(108, 117, 125, 0.1);
+            color: rgb(108, 117, 125);
+        }
+        
+        .custom-button-processing {
+            opacity: 0.5;
+            pointer-events: none;
+        }
+    `;
+
+    // Add CSS to page
+    function addCustomCSS() {
+        const style = document.createElement('style');
+        style.textContent = customCSS;
+        document.head.appendChild(style);
+    }
+
+    // Find existing more menu button for a post container - IMPROVED VERSION
+    function findMoreMenuButton(postContainer) {
+        console.log('Looking for more menu button in:', postContainer);
+        
+        // Method 1: Look for SVG with "More" aria-label
+        const moreSvgs = postContainer.querySelectorAll('svg[aria-label="More"]');
+        console.log('Found SVGs with More aria-label:', moreSvgs.length);
+        
+        for (let svg of moreSvgs) {
+            const button = svg.closest('[role="button"]') || svg.closest('button');
+            if (button) {
+                console.log('Found more button via SVG aria-label');
+                return button;
+            }
+        }
+        
+        // Method 2: Look for three-dot pattern in SVG
+        const allSvgs = postContainer.querySelectorAll('svg');
+        console.log('Total SVGs found:', allSvgs.length);
+        
+        for (let svg of allSvgs) {
+            const circles = svg.querySelectorAll('circle');
+            if (circles.length === 3) {
+                // Check if circles are in the three-dot pattern
+                let isThreeDot = true;
+                for (let circle of circles) {
+                    const cy = circle.getAttribute('cy');
+                    const cx = circle.getAttribute('cx');
+                    if (cy !== '12' || !['6', '12', '18'].includes(cx)) {
+                        isThreeDot = false;
+                        break;
+                    }
+                }
+                
+                if (isThreeDot) {
+                    const button = svg.closest('[role="button"]') || svg.closest('button');
+                    if (button) {
+                        console.log('Found more button via three-dot pattern');
+                        return button;
+                    }
+                }
+            }
+        }
+        
+        // Method 3: Look for button with specific viewBox that contains three circles
+        const buttonElements = postContainer.querySelectorAll('[role="button"], button');
+        console.log('Total buttons found:', buttonElements.length);
+        
+        for (let button of buttonElements) {
+            const svg = button.querySelector('svg[viewBox="0 0 24 24"]');
+            if (svg) {
+                const circles = svg.querySelectorAll('circle');
+                if (circles.length === 3) {
+                    console.log('Found more button via button search');
+                    return button;
+                }
+            }
+        }
+        
+        console.log('More menu button not found');
+        return null;
+    }
+
+    // Extract username from post
+    function extractUsername(postContainer) {
+        // Look for username link
+        const usernameLink = postContainer.querySelector('a[href^="/@"]');
+        if (usernameLink) {
+            return usernameLink.getAttribute('href').replace('/@', '');
+        }
+        return null;
+    }
+
+    // Create custom button icons (SVG)
+    function createButtonIcon(type) {
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('width', '16');
+        svg.setAttribute('height', '16');
+        svg.setAttribute('viewBox', '0 0 20 20');
+        svg.setAttribute('fill', 'currentColor');
+        svg.setAttribute('class', 'custom-button-icon');
+        
+        let pathData;
+        switch (type) {
+            case 'mute':
+                pathData = 'M10 4.5c0-2.07 1.68-3.75 3.75-3.75s3.75 1.68 3.75 3.75-1.68 3.75-3.75 3.75S10 6.57 10 4.5zm0 7.5c0 .41.34.75.75.75h2c.69 0 .98 0 1.21.03 1.68.22 3 1.55 3.22 3.22.03.23.03.52.03 1.21 0 .25 0 .31 0 .35-.04.34-.31.61-.65.65-.04 0-.1 0-.35 0h-3.46c-.41 0-.75.34-.75.75s.34.75.75.75h3.46c1.81 0 3.25-1.44 3.25-3.25v-.46c0-.64 0-1.03-.05-1.37-.29-2.36-2.11-4.18-4.47-4.47-.34-.05-.73-.05-1.37-.05H10.75c-.41 0-.75.34-.75.75z';
+                break;
+            case 'block':
+                pathData = 'M10 2C6.5 2 3.75 4.75 3.75 8.25s2.75 6.25 6.25 6.25 6.25-2.75 6.25-6.25S13.5 2 10 2zm0 1.5c2.62 0 4.75 2.13 4.75 4.75 0 1.04-.34 2-.91 2.78L6.47 8.66C6.66 5.79 8.04 3.5 10 3.5zm0 9.5c-1.04 0-2-.34-2.78-.91l7.37-7.37c.57.78.91 1.74.91 2.78 0 2.62-2.13 4.75-4.75 4.75z';
+                break;
+            case 'not-interested':
+                pathData = 'M2.5 2.5L17.5 17.5M6 6c-1.5.75-2.5 2.25-2.5 4s1 3.25 2.5 4c1.5.75 3 1 4 1s2.5-.25 4-1c1.5-.75 2.5-2.25 2.5-4 0-.5-.1-1-.3-1.4M8.5 8.5c-.3.4-.5.9-.5 1.5 0 1.38 1.12 2.5 2.5 2.5.6 0 1.1-.2 1.5-.5';
+                break;
+            default:
+                pathData = 'M10 3c3.87 0 7 3.13 7 7s-3.13 7-7 7-7-3.13-7-7 3.13-7 7-7z';
+        }
+        
+        const pathElement = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        pathElement.setAttribute('d', pathData);
+        pathElement.setAttribute('stroke', 'currentColor');
+        pathElement.setAttribute('stroke-width', '1.5');
+        pathElement.setAttribute('stroke-linecap', 'round');
+        pathElement.setAttribute('fill', 'none');
+        svg.appendChild(pathElement);
+        
+        return svg;
+    }
+
+    // Create custom buttons
+    function createCustomButtons(postContainer, postId) {
+        const buttonsContainer = document.createElement('div');
+        buttonsContainer.className = 'custom-buttons-container';
+        buttonsContainer.setAttribute('data-post-id', postId);
+
+        const username = extractUsername(postContainer);
+
+        // Mute button
+        const muteButton = document.createElement('button');
+        muteButton.className = 'custom-button-compact mute-btn';
+        muteButton.title = `Mute ${username || 'this user'}`;
+        muteButton.appendChild(createButtonIcon('mute'));
+        muteButton.onclick = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            handleMuteUser(postContainer, postId, muteButton);
+        };
+
+        // Block button  
+        const blockButton = document.createElement('button');
+        blockButton.className = 'custom-button-compact block-btn';
+        blockButton.title = `Block ${username || 'this user'}`;
+        blockButton.appendChild(createButtonIcon('block'));
+        blockButton.onclick = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            handleBlockUser(postContainer, postId, blockButton);
+        };
+
+        // Not interested button
+        const notInterestedButton = document.createElement('button');
+        notInterestedButton.className = 'custom-button-compact not-interested-btn';
+        notInterestedButton.title = 'Not interested in this post';
+        notInterestedButton.appendChild(createButtonIcon('not-interested'));
+        notInterestedButton.onclick = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            handleNotInterested(postContainer, postId, notInterestedButton);
+        };
+
+        buttonsContainer.appendChild(muteButton);
+        buttonsContainer.appendChild(blockButton);
+        buttonsContainer.appendChild(notInterestedButton);
+
+        return buttonsContainer;
+    }
+
+    // Simplified menu item finder
+    function findMenuItemByText(text) {
+        return new Promise((resolve) => {
+            const checkForMenuItem = () => {
+                // Look for spans containing the exact text
+                const spans = document.querySelectorAll('span');
+                for (let span of spans) {
+                    if (span.textContent && span.textContent.trim() === text) {
+                        const button = span.closest('[role="button"]');
+                        if (button) {
+                            console.log(`Found menu item: ${text}`);
+                            resolve(button);
+                            return;
+                        }
+                    }
+                }
+                console.log(`Menu item not found: ${text}`);
+                resolve(null);
+            };
+
+            // Check immediately
+            checkForMenuItem();
+            
+            // Also check after short delays to account for animation
+            setTimeout(checkForMenuItem, 200);
+            setTimeout(checkForMenuItem, 500);
+        });
+    }
+
+    // Action handlers using Threads' actual menu system
+    async function handleMuteUser(postContainer, postId, button) {
+        try {
+            button.classList.add('custom-button-processing');
+            console.log('Attempting to mute user for post:', postId);
+
+            const moreButton = findMoreMenuButton(postContainer);
+            if (!moreButton) {
+                throw new Error('More menu button not found');
+            }
+
+            console.log('Clicking more menu button');
+            moreButton.click();
+            
+            // Wait for menu animation
+            await new Promise(resolve => setTimeout(resolve, 800));
+
+            // Find mute button more reliably
+            const muteButton = await findMenuItemByText('Mute');
+            if (muteButton) {
+                console.log('Clicking mute button');
+                muteButton.click();
+                console.log('Successfully muted user');
+                
+                // Hide the post with a fade effect
+                postContainer.style.transition = 'opacity 0.5s ease';
+                postContainer.style.opacity = '0.5';
+                
+                // Add a visual indicator
+                const indicator = document.createElement('div');
+                indicator.textContent = 'User muted';
+                indicator.style.cssText = 'position: absolute; top: 10px; right: 10px; background: rgba(255,193,7,0.9); color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; z-index: 1000;';
+                postContainer.style.position = 'relative';
+                postContainer.appendChild(indicator);
+                setTimeout(() => indicator.remove(), 3000);
+            } else {
+                throw new Error('Mute menu item not found');
+            }
+        } catch (error) {
+            console.error('Error muting user:', error);
+        } finally {
+            button.classList.remove('custom-button-processing');
+        }
+    }
+
+    async function handleBlockUser(postContainer, postId, button) {
+        try {
+            button.classList.add('custom-button-processing');
+            console.log('Attempting to block user for post:', postId);
+
+            const moreButton = findMoreMenuButton(postContainer);
+            if (!moreButton) {
+                throw new Error('More menu button not found');
+            }
+
+            console.log('Clicking more menu button');
+            moreButton.click();
+            
+            // Wait for menu animation
+            await new Promise(resolve => setTimeout(resolve, 800));
+
+            // Find block button
+            const blockButton = await findMenuItemByText('Block');
+            if (blockButton) {
+                console.log('Clicking block button');
+                blockButton.click();
+                
+                // Wait for dialog
+                await new Promise(resolve => setTimeout(resolve, 800));
+                
+                // Find confirmation button in dialog
+                const confirmButton = await findMenuItemByText('Block');
+                if (confirmButton) {
+                    console.log('Clicking confirm block button');
+                    confirmButton.click();
+                    console.log('Successfully blocked user');
+                    
+                    // Hide the post completely
+                    postContainer.style.transition = 'all 0.5s ease';
+                    postContainer.style.opacity = '0';
+                    postContainer.style.transform = 'scale(0.95)';
+                    setTimeout(() => {
+                        postContainer.style.display = 'none';
+                    }, 500);
+                } else {
+                    throw new Error('Block confirmation button not found');
+                }
+            } else {
+                throw new Error('Block menu item not found');
+            }
+        } catch (error) {
+            console.error('Error blocking user:', error);
+        } finally {
+            button.classList.remove('custom-button-processing');
+        }
+    }
+
+    async function handleNotInterested(postContainer, postId, button) {
+        try {
+            button.classList.add('custom-button-processing');
+            console.log('Attempting to mark post as not interested:', postId);
+
+            const moreButton = findMoreMenuButton(postContainer);
+            if (!moreButton) {
+                throw new Error('More menu button not found');
+            }
+
+            console.log('Clicking more menu button');
+            moreButton.click();
+            
+            // Wait for menu animation
+            await new Promise(resolve => setTimeout(resolve, 800));
+
+            // Find "Not interested" button
+            const notInterestedButton = await findMenuItemByText('Not interested');
+            if (notInterestedButton) {
+                console.log('Clicking not interested button');
+                notInterestedButton.click();
+                console.log('Successfully marked as not interested');
+                
+                // Hide the post with a slide effect
+                postContainer.style.transition = 'all 0.5s ease';
+                postContainer.style.opacity = '0';
+                postContainer.style.transform = 'translateX(-20px)';
+                setTimeout(() => {
+                    postContainer.style.display = 'none';
+                }, 500);
+                
+                // Add a visual indicator
+                const indicator = document.createElement('div');
+                indicator.textContent = 'Marked as not interested';
+                indicator.style.cssText = 'position: absolute; top: 10px; right: 10px; background: rgba(108,117,125,0.9); color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; z-index: 1000;';
+                postContainer.style.position = 'relative';
+                postContainer.appendChild(indicator);
+            } else {
+                throw new Error('Not interested menu item not found');
+            }
+        } catch (error) {
+            console.error('Error marking as not interested:', error);
+        } finally {
+            button.classList.remove('custom-button-processing');
+        }
+    }
+
+    // Process individual post
+    function processPost(postContainer) {
+        // FIRST - Check if buttons already exist to prevent duplicates
+        if (postContainer.querySelector('.custom-buttons-container')) {
+            return; // Already has buttons, skip
+        }
+        
+        // Generate a more reliable unique ID for this post
+        let postId = '';
+        
+        // Method 1: Try to get post URL
+        const postLink = postContainer.querySelector('a[href*="/post/"]');
+        if (postLink) {
+            postId = postLink.getAttribute('href').split('/').pop();
+        } 
+        // Method 2: Try username + timestamp
+        else {
+            const usernameLink = postContainer.querySelector('a[href^="/@"]');
+            const timeElement = postContainer.querySelector('time[datetime]');
+            if (usernameLink && timeElement) {
+                const username = usernameLink.getAttribute('href').replace('/@', '');
+                const timestamp = timeElement.getAttribute('datetime');
+                postId = `${username}-${timestamp}`;
+            }
+        }
+        
+        // Method 3: Use container-based ID (fallback)
+        if (!postId) {
+            // Create ID based on post content hash
+            const textContent = postContainer.textContent || '';
+            const username = extractUsername(postContainer) || 'unknown';
+            postId = `${username}-${textContent.substring(0, 50).replace(/\s+/g, '-')}`;
+        }
+        
+        // Skip if already processed
+        if (processedPosts.has(postId)) {
+            return;
+        }
+
+        // Double-check for existing buttons one more time
+        if (postContainer.querySelector('.custom-buttons-container')) {
+            processedPosts.add(postId); // Mark as processed even though we're not adding buttons
+            return;
+        }
+
+        // Mark as processed BEFORE creating buttons
+        processedPosts.add(postId);
+
+        // Create and insert custom buttons
+        const customButtons = createCustomButtons(postContainer, postId);
+        
+        // Insert into the post grid structure
+        // Look for the last content row to append after
+        const gridContainer = postContainer.querySelector('[style*="grid"]') || postContainer;
+        gridContainer.appendChild(customButtons);
+
+        console.log('Added custom buttons to post:', postId);
+    }
+
+    // Process all visible posts
+    function processAllPosts() {
+        // Wait for initial content load
+        const pressableContainers = document.querySelectorAll('[data-pressable-container="true"]');
+        
+        pressableContainers.forEach(container => {
+            // Find the parent post container
+            let postContainer = container.closest('[style*="grid"]') || 
+                               container.closest('article') || 
+                               container;
+            
+            if (postContainer) {
+                processPost(postContainer);
+            }
+        });
+    }
+
+    // Set up mutation observer for dynamic content
+    function setupMutationObserver() {
+        let processingTimeout;
+        
+        const observer = new MutationObserver((mutations) => {
+            let shouldProcess = false;
+            
+            mutations.forEach((mutation) => {
+                if (mutation.type === 'childList') {
+                    mutation.addedNodes.forEach((node) => {
+                        if (node.nodeType === 1) { // Element node
+                            // Only process if new pressable containers are added
+                            if (node.querySelector && node.querySelector('[data-pressable-container="true"]')) {
+                                shouldProcess = true;
+                            }
+                            // Also check if the node itself is a pressable container
+                            if (node.hasAttribute && node.hasAttribute('data-pressable-container')) {
+                                shouldProcess = true;
+                            }
+                        }
+                    });
+                }
+            });
+            
+            if (shouldProcess) {
+                // Clear any existing timeout
+                clearTimeout(processingTimeout);
+                // Debounce processing with longer delay
+                processingTimeout = setTimeout(() => {
+                    console.log('Processing new posts due to DOM changes...');
+                    processAllPosts();
+                }, 1000);
+            }
+        });
+
+        observer.observe(document.body, {
+            childList: true,
+            subtree: true
+        });
+        
+        console.log('Mutation observer set up');
+    }
+
+    // Initialize the script
+    function initialize() {
+        // Add custom CSS
+        addCustomCSS();
+        
+        // Wait for initial page load
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', () => {
+                setTimeout(() => {
+                    processAllPosts();
+                    setupMutationObserver();
+                }, 1000);
+            });
+        } else {
+            setTimeout(() => {
+                processAllPosts();
+                setupMutationObserver();
+            }, 1000);
+        }
+    }
+
+    // Start the script
+    initialize();
+
+})();
