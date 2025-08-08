@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Threads Custom Buttons 3
+// @name         Threads Custom Buttons 4
 // @namespace    http://tampermonkey.net/
-// @version      14.0
+// @version      15.0
 // @description  Add custom buttons to Threads posts
 // @author       You
 // @match        https://threads.net/*
@@ -251,6 +251,47 @@
         return buttonsContainer;
     }
 
+    // Find the best insertion point for buttons in a post
+    function findButtonInsertionPoint(postContainer) {
+        // Strategy 1: Look for existing action buttons container (like/reply/share)
+        const actionButtonContainers = postContainer.querySelectorAll('div[class*="x78zum5"]');
+        for (let container of actionButtonContainers) {
+            // Check if this container has SVG icons that look like action buttons
+            const svgs = container.querySelectorAll('svg[aria-label]');
+            const hasActionButtons = Array.from(svgs).some(svg => {
+                const label = svg.getAttribute('aria-label');
+                return label && (label.includes('Like') || label.includes('Reply') || label.includes('Share') || label.includes('Repost'));
+            });
+            
+            if (hasActionButtons) {
+                // Found the action buttons container, insert after its parent
+                return container.closest('div[class*="x4vbgl9"]') || container.parentElement;
+            }
+        }
+
+        // Strategy 2: Look for the main content area and append to it
+        const mainContentAreas = postContainer.querySelectorAll('div[class*="x1xdureb"]');
+        for (let area of mainContentAreas) {
+            // Check if this contains post text or media
+            if (area.querySelector('span[dir="auto"]') || area.querySelector('img') || area.querySelector('video')) {
+                return area;
+            }
+        }
+
+        // Strategy 3: Look for the bottom-most content container
+        const allDivs = postContainer.querySelectorAll('div');
+        for (let i = allDivs.length - 1; i >= 0; i--) {
+            const div = allDivs[i];
+            // Look for containers that might hold post content
+            if (div.querySelector('time') || div.querySelector('span[dir="auto"]')) {
+                return div.parentElement || div;
+            }
+        }
+
+        // Strategy 4: Fallback to the main post container
+        return postContainer;
+    }
+
     // Simplified menu item finder
     function findMenuItemByText(text) {
         return new Promise((resolve) => {
@@ -424,7 +465,7 @@
         }
     }
 
-    // Process individual post
+    // Process individual post - IMPROVED VERSION
     function processPost(postContainer) {
         // FIRST - Check if buttons already exist to prevent duplicates
         if (postContainer.querySelector('.custom-buttons-container')) {
@@ -472,31 +513,47 @@
         // Mark as processed BEFORE creating buttons
         processedPosts.add(postId);
 
-        // Create and insert custom buttons
+        // Create custom buttons
         const customButtons = createCustomButtons(postContainer, postId);
 
-        // Insert into the post grid structure
-        // Look for the last content row to append after
-        const gridContainer = postContainer.querySelector('[style*="grid"]') || postContainer;
-        gridContainer.appendChild(customButtons);
-
-        console.log('Added custom buttons to post:', postId);
+        // Find the best insertion point
+        const insertionPoint = findButtonInsertionPoint(postContainer);
+        
+        if (insertionPoint) {
+            insertionPoint.appendChild(customButtons);
+            console.log('Added custom buttons to post:', postId);
+        } else {
+            console.warn('Could not find insertion point for post:', postId);
+            // Remove from processed set so we can try again later
+            processedPosts.delete(postId);
+        }
     }
 
     // Process all visible posts
     function processAllPosts() {
         // Wait for initial content load
         const pressableContainers = document.querySelectorAll('[data-pressable-container="true"]');
+        console.log(`Found ${pressableContainers.length} pressable containers`);
 
-        pressableContainers.forEach(container => {
-            // Find the parent post container
-            let postContainer = container.closest('[style*="grid"]') ||
-                               container.closest('article') ||
-                               container;
-
-            if (postContainer) {
-                processPost(postContainer);
+        pressableContainers.forEach((container, index) => {
+            // Find the parent post container with better logic
+            let postContainer = container;
+            
+            // Walk up the DOM to find a suitable container
+            let current = container;
+            while (current && current !== document.body) {
+                // Look for containers that seem to be complete posts
+                if (current.querySelector('a[href^="/@"]') && 
+                    current.querySelector('time') && 
+                    (current.querySelector('svg[aria-label="More"]') || current.querySelector('svg circle'))) {
+                    postContainer = current;
+                    break;
+                }
+                current = current.parentElement;
             }
+
+            console.log(`Processing post container ${index + 1}:`, postContainer);
+            processPost(postContainer);
         });
     }
 
